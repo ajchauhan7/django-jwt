@@ -1,19 +1,43 @@
+from django.http.response import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.http import HttpResponseRedirect
 from django.core.urlresolvers import reverse
 from django.contrib.auth.models import User
+from ratelimit.decorators import ratelimit
+
 from .models import Review, Wine, Cluster
 from .forms import ReviewForm
 from .suggestions import update_clusters
+from django.core import serializers
+from django.core import cache
 
 import datetime
 
 from django.contrib.auth.decorators import login_required
 
+@ratelimit(key="ip", rate="1/m")
 def review_list(request):
     latest_review_list = Review.objects.order_by('-pub_date')[:9]
     context = {'latest_review_list':latest_review_list}
     return render(request, 'reviews/review_list.html', context)
+
+
+@ratelimit(key='ip',rate="1/m", method="GET", block=True)
+def review_list_json(request):
+    print "This called"
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    print 'This is the ip: '+ip
+    was_limited = getattr(request, 'limited', False)
+    print was_limited
+    print request.user.username
+    latest_review_list = Review.objects.order_by('-pub_date')[:9]
+    serialized_obj = serializers.serialize('json', latest_review_list)
+    context = {'latest_review_list':serialized_obj}
+    return JsonResponse(context)
 
 
 def review_detail(request, review_id):
